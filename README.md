@@ -4,6 +4,8 @@
 
 > **实力声明**：本项目的全部强度数据均来自引擎之间的内部对局，**从未经过人类对弈认证**，真实实力不保证。保守估计，它**并没有超过人类的棋力**——请勿将任何内部 Elo 数字解读为"能赢人类"的证据。
 
+🎮 **[在线试玩](https://c0s1n3.github.io/azul-ai/)** —— 冠军网络 az_net7 编译为 WebAssembly 直跑在浏览器里，打开网页即可人机对弈。
+
 ## 项目结构
 
 ```
@@ -18,6 +20,9 @@ train/
   train_az.py    AZ 网训练（自博弈数据 + 累积 replay）
   train_nnue.py  NNUE 训练
   diag_nnue.py   NNUE 诊断
+docs/
+  index.html     在线试玩对弈页（Azul 棋盘 UI）
+  azul_wasm.wasm 引擎 + 冠军网络的 wasm 构建（GitHub Pages 直出）
 docs/worklog.md            全程工程记录（决策、事故、Elo 数据）
 azul-ai-plan.md 总体规划（0~6 阶段）
 out/
