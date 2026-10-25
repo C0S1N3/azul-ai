@@ -1,0 +1,9 @@
+[package]
+name = "azul-nnue"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+azul-core = { path = "../azul-core" }
+azul-search = { path = "../azul-search" }

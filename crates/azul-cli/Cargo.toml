@@ -1,0 +1,22 @@
+[package]
+name = "azul-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "azul"
+
+[dependencies]
+azul-core = { path = "../azul-core" }
+azul-search = { path = "../azul-search" }
+azul-arena = { path = "../azul-arena" }
+azul-nnue = { path = "../azul-nnue" }
+azul-az = { path = "../azul-az" }
+serde_json = "1"
+
+[[bin]]
+name = "azul"
+path = "src/main.rs"
+
+[[bin]]
+name = "nnue-eval"
+path = "src/bin/nnue_eval.rs"
