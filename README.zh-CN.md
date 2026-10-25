@@ -4,7 +4,7 @@
 
 > **关于强度**：下面所有数字都来自本项目内部的引擎对引擎对局，外加一场 80 局的跨项目对局（对手是一个公开的预训练网络）。这些数据**没有经过人类对弈验证**，也不构成"能赢人类"的结论。
 
-🎮 **在线试玩** —— [Qoder Sites](https://azul-ai-f9d6h843g0z.qoder.zone/) · [GitHub Pages](https://c0sin3.github.io/azul-ai/) · [WorkBuddy](https://azul-ai-demo.app.workbuddy.host/?sharecode=7LGJRHMASS)。冠军网络 `az_net7` 编译成 WebAssembly，完全在页面里本地运行。
+🎮 **在线试玩** —— [GitHub Pages](https://c0sin3.github.io/azul-ai/)。冠军网络 `az_net7` 编译成 WebAssembly，完全在页面里本地运行。
 
 [English README](README.md)
 
