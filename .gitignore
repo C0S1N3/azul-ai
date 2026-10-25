@@ -15,3 +15,7 @@ _logs/
 _tmp_check/
 *.log
 settings.json
+
+# 本地站点发布产物
+/dist
+*.site

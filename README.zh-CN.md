@@ -4,7 +4,7 @@
 
 > **实力声明**：本项目的全部强度数据均来自引擎之间的内部对局，**从未经过人类对弈认证**，真实实力不保证。保守估计，它**并没有超过人类的棋力**——请勿将任何内部 Elo 数字解读为"能赢人类"的证据。
 
-🎮 **[在线试玩](https://c0s1n3.github.io/azul-ai/)** —— 冠军网络 az_net7 编译为 WebAssembly 直跑在浏览器里，打开网页即可人机对弈。
+🎮 **[在线试玩](https://azul-ai-f9d6h843g0z.qoder.zone/)** —— 冠军网络 az_net7 编译为 WebAssembly 直跑在浏览器里，打开网页即可人机对弈。
 
 [English README](README.md)
 

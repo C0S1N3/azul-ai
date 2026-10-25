@@ -4,7 +4,7 @@ An Azul board-game AI built on a Rust engine with AlphaZero self-play training. 
 
 > **Strength disclaimer**: every strength figure in this project comes from internal engine-vs-engine matches and has **never been certified through play against humans**; the true strength is not guaranteed. Conservatively speaking, it **has not exceeded human playing strength** — please do not read any internal Elo number as evidence that it "can beat humans".
 
-🎮 **[Play in the browser](https://c0s1n3.github.io/azul-ai/)** — the champion network az_net7 compiled to WebAssembly, running directly on the page. Open it and play against the AI.
+🎮 **[Play in the browser](https://azul-ai-f9d6h843g0z.qoder.zone/)** — the champion network az_net7 compiled to WebAssembly, running directly on the page. Open it and play against the AI.
 
 [简体中文 README](README.zh-CN.md)
 
