@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Azul AI 对弈</title>
+<style>
+:root{
+  --bg:#f6f2ea; --card:#ffffff; --ink:#2c2620; --muted:#8a7f72;
+  --c0:#4aa8d0; --c1:#eda63a; --c2:#e04a4f; --c3:#2f5450; --c4:#eef7fc;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+body{margin:0; background:var(--bg); color:var(--ink);
+  font:15px/1.6 system-ui,"PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:1100px; margin:0 auto; padding:16px}
+header{display:flex; flex-wrap:wrap; align-items:baseline; gap:12px; margin-bottom:4px}
+h1{font-size:22px; margin:0}
+.sub{color:var(--muted); font-size:13px}
+.disclaim{background:#fdf3e0; border:1px solid #e8d5ad; border-radius:10px;
+  padding:10px 14px; margin:12px 0; font-size:13px; color:#7a5c22}
+.toolbar{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:12px 0}
+.toolbar button{font:inherit; padding:8px 16px; border-radius:10px; border:1px solid #c9bfae;
+  background:var(--card); cursor:pointer}
+.toolbar button.primary{background:#2c6e49; color:#fff; border-color:#2c6e49}
+.toolbar button:disabled{opacity:.5; cursor:default}
+.toolbar label{font-size:13px; color:var(--muted)}
+select{font:inherit; padding:6px 8px; border-radius:8px; border:1px solid #c9bfae}
+.status{font-size:14px; margin:8px 0; min-height:1.4em}
+.status .think{color:#2c6e49; font-weight:600}
+
+/* 工厂区 */
+.centres{display:flex; flex-wrap:wrap; gap:14px; margin:10px 0}
+.factory{background:var(--card); border:1px solid #ddd2c2; border-radius:14px;
+  padding:10px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; min-height:52px}
+.factory.centre{border-style:dashed}
+.ftile{width:34px; height:34px; border-radius:8px; cursor:pointer;
+  border:2px solid rgba(0,0,0,.12); transition:transform .08s}
+.ftile:hover{transform:scale(1.12)}
+.ftile.sel{outline:3px solid #2c2620; transform:scale(1.12)}
+.ftile.dim{opacity:.35}
+.marker{width:30px; height:30px; border-radius:50%; background:#fff; border:2px solid #2c2620;
+  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px}
+
+/* 玩家面板 */
+.boards{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+@media (max-width:820px){ .boards{grid-template-columns:1fr} }
+.board{background:var(--card); border:1px solid #ddd2c2; border-radius:16px; padding:14px}
+.board.me{border-color:#2c6e49; box-shadow:0 0 0 2px rgba(44,110,73,.12)}
+.bhead{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px}
+.bhead b{font-size:15px}
+.score{background:#f1e9db; border-radius:10px; padding:3px 12px; font-weight:700}
+.grid{display:grid; grid-template-columns:auto auto 1fr; gap:10px; align-items:center}
+.lines{display:flex; flex-direction:column; gap:6px}
+.line{display:flex; gap:4px; justify-content:flex-end}
+.slot{width:30px; height:30px; border-radius:7px; background:#efe8dc; border:1px dashed #cfc2ae}
+.slot.void{background:transparent; border:none}
+.slot.filled{border-style:solid; border-color:rgba(0,0,0,.12)}
+.line.drop-ok .slot.empty-last{outline:2px dashed #2c6e49; cursor:pointer}
+.wall{display:grid; grid-template-columns:repeat(5,30px); gap:4px}
+.wcell{width:30px; height:30px; border-radius:7px; border:1px solid rgba(0,0,0,.08)}
+.floor{display:flex; gap:4px; margin-top:10px; align-items:center}
+.fcell{width:34px; height:30px; border-radius:7px; background:#efe8dc; border:1px solid #cfc2ae;
+  display:flex; align-items:center; justify-content:center; font-size:11px; color:#b3a690}
+.fcell.on{border-style:solid; border-color:rgba(0,0,0,.15)}
+.floor.drop-ok .fcell{outline:2px dashed #2c6e49; cursor:pointer}
+.flabel{font-size:12px; color:var(--muted); margin-right:6px}
+
+.tint0{background:var(--c0)} .tint1{background:var(--c1)} .tint2{background:var(--c2)}
+.tint3{background:var(--c3)} .tint4{background:#fbfdff; background-image:radial-gradient(circle at 50% 45%, #cfeaf4 32%, transparent 33%)}
+
+.arrow{font-size:20px; color:var(--muted); padding:0 2px}
+.legend{font-size:12px; color:var(--muted); margin:14px 0}
+.over{background:#eaf5ee; border:1px solid #b7d9c3; border-radius:12px; padding:12px 16px;
+  margin:12px 0; font-size:15px}
+a{color:#2c6e49}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Azul AI 在线对弈</h1>
+  <span class="sub">Rust 引擎 + AlphaZero 冠军网络（az_net7），WebAssembly 直跑在浏览器里</span>
+</header>
+
+<div class="disclaim">
+  <b>实力声明：</b>本 AI 的全部强度数据来自引擎之间的内部对局，<b>从未经过人类对弈认证，真实实力不保证</b>。
+  保守估计，它<b>并没有超过人类的棋力</b>——这里只是让你亲手试试它的手感。
+</div>
+
+<div class="toolbar">
+  <button class="primary" onclick="newGame()">新对局</button>
+  <label>AI 强度（MCTS 模拟次数）
+    <select id="sims">
+      <option value="256">256（快）</option>
+      <option value="1024" selected>1024（均衡）</option>
+      <option value="2560">2560（强，较慢）</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="first" checked> 我执先手</label>
+</div>
+
+<div class="status" id="status"></div>
+<div id="gameover"></div>
+
+<div class="centres" id="factories"></div>
+
+<div class="boards">
+  <div class="board me" id="board0">
+    <div class="bhead"><b>你</b><span class="score" id="score0">0</span></div>
+    <div class="grid">
+      <div class="lines" id="lines0"></div>
+      <div class="arrow">➜</div>
+      <div class="wall" id="wall0"></div>
+    </div>
+    <div class="floor" id="floor0"><span class="flabel">罚分条</span></div>
+  </div>
+  <div class="board" id="board1">
+    <div class="bhead"><b>AI</b><span class="score" id="score1">0</span></div>
+    <div class="grid">
+      <div class="lines" id="lines1"></div>
+      <div class="arrow">➜</div>
+      <div class="wall" id="wall1"></div>
+    </div>
+    <div class="floor" id="floor1"><span class="flabel">罚分条</span></div>
+  </div>
+</div>
+
+<div class="legend">
+  玩法：点工厂/公共牌堆里的花色（同色砖一次拿走），再点你要放进的<b>图案行</b>或<b>罚分条</b>。
+  图案行右起填满后，回合结束时该色砖上墙计分。墙格位置固定对应花色（蓝→黄→红→黑→白 循环）。
+</div>
+</div>
+
+<script>
+const COLS = ['蓝','黄','红','黑','白'];
+const WALLCOL = ['#3aa6cd','#efa93a','#e04a4f','#2f5450','#f4f2ec'];
+const GHOST  = ['#cfe6f1','#f6e7c4','#f3cfd1','#c9d5d2','#f0eeea'];
+const PEN = ['-1','-1','-2','-2','-2','-3','-3'];
+
+let wasm = null, S = null, sel = null, busy = false;
+
+function newGame(){
+  sel = null; busy = false;
+  document.getElementById('gameover').innerHTML = '';
+  // turn: 0=你（人类） 1=AI；"我执先手"未勾选时让 AI 先走
+  wasm.game_new((Math.random()*1e9)|0, 0, document.getElementById('first').checked ? 0 : 1);
+  render();
+  maybeAi();
+}
+
+function readState(){
+  const ptr = wasm.game_json();
+  const len = wasm.game_json_len();
+  const bytes = new Uint8Array(wasm.memory.buffer, ptr, len);
+  S = JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function tileEl(cls){
+  const d = document.createElement('div');
+  d.className = cls;
+  return d;
+}
+
+function render(){
+  readState();
+  // 工厂
+  const fac = document.getElementById('factories');
+  fac.innerHTML = '';
+  for(let f=0; f<5; f++){
+    const box = document.createElement('div');
+    box.className = 'factory';
+    for(let c=0; c<5; c++){
+      const n = S.factories[f][c];
+      for(let k=0; k<n; k++){
+        const t = tileEl('ftile tint'+c + (sel && sel.src===f && sel.col===c ? ' sel' : ''));
+        t.title = COLS[c];
+        t.onclick = ()=>pick(f, c);
+        box.appendChild(t);
+      }
+    }
+    if(!box.children.length) box.style.opacity = .35;
+    fac.appendChild(box);
+  }
+  // 中央牌堆
+  const cb = document.createElement('div');
+  cb.className = 'factory centre';
+  if(S.marker_in_centre){
+    const m = document.createElement('div');
+    m.className = 'marker'; m.textContent = '1'; m.title = '先手标记';
+    cb.appendChild(m);
+  }
+  for(let c=0; c<5; c++){
+    const n = S.centre[c];
+    for(let k=0; k<n; k++){
+      const t = tileEl('ftile tint'+c + (sel && sel.src===5 && sel.col===c ? ' sel' : ''));
+      t.title = COLS[c];
+      t.onclick = ()=>pick(5, c);
+      cb.appendChild(t);
+    }
+  }
+  fac.appendChild(cb);
+
+  // 玩家面板
+  for(let p=0; p<2; p++){
+    const P = S.players[p];
+    document.getElementById('score'+p).textContent = P.score;
+    const lines = document.getElementById('lines'+p);
+    lines.innerHTML = '';
+    for(let r=0; r<5; r++){
+      const row = document.createElement('div');
+      row.className = 'line';
+      const [col, cnt] = P.lines[r];
+      const used = cnt>0 ? col : -1;
+      for(let i=0; i<5; i++){
+        const void_ = i < 4-r;
+        const filled = !void_ && (i >= 5-cnt);
+        const s = document.createElement('div');
+        s.className = 'slot ' + (void_ ? 'void' : (filled ? 'filled tint'+used : 'empty-last'));
+        if(filled) s.classList.add('tint'+used);
+        row.appendChild(s);
+      }
+      // 高亮可放目标
+      if(p===0 && sel && canDrop(r)){
+        row.classList.add('drop-ok');
+        row.querySelectorAll('.slot').forEach(s=>{ if(!s.classList.contains('void')) s.onclick = ()=>play(r); });
+      }
+      lines.appendChild(row);
+    }
+    const wall = document.getElementById('wall'+p);
+    wall.innerHTML = '';
+    for(let r=0; r<5; r++) for(let c=0; c<5; c++){
+      const col = (c - r + 5) % 5;
+      const w = document.createElement('div');
+      w.className = 'wcell tint'+col;
+      w.style.background = P.wall[r][c] ? WALLCOL[col] : GHOST[col];
+      w.title = (P.wall[r][c] ? '已铺 · ' : '') + COLS[col];
+      wall.appendChild(w);
+    }
+    const floor = document.getElementById('floor'+p);
+    floor.querySelectorAll('.fcell').forEach(e=>e.remove());
+    for(let i=0; i<7; i++){
+      const f = document.createElement('div');
+      f.className = 'fcell';
+      const v = P.floor[i];
+      if(v===7){ f.classList.add('on'); f.style.background='#fff'; f.textContent='1'; f.title='先手标记'; }
+      else if(v>0){ f.classList.add('on','tint'+(v-1)); f.title=COLS[v-1]; }
+      else f.textContent = PEN[i];
+      if(p===0 && sel) f.onclick = ()=>play(5);
+      floor.appendChild(f);
+    }
+  }
+  // 状态行
+  const st = document.getElementById('status');
+  if(S.ended){
+    st.innerHTML = '对局结束。';
+    const r = S.result;
+    const msg = r===-1 ? '平局！' : (r===0 ? '你赢了！' : 'AI 获胜。');
+    document.getElementById('gameover').innerHTML =
+      `<div class="over"><b>${msg}</b> 最终比分：你 ${S.players[0].score} : ${S.players[1].score} AI</div>`;
+  } else if(busy){
+    st.innerHTML = '<span class="think">AI 思考中…</span>';
+  } else if(S.turn===0){
+    st.innerHTML = sel ? `已选 <b>${COLS[sel.col]}</b>（共 ${sel.n} 块）→ 点目标行或罚分条` : '轮到你走：选一个工厂或公共牌堆里的花色。';
+  } else {
+    st.innerHTML = '等待 AI…';
+  }
+}
+
+function pick(src, col){
+  if(S.ended || busy || S.turn!==0) return;
+  const n = src===5 ? S.centre[col] : S.factories[src][col];
+  if(n<=0) return;
+  sel = (sel && sel.src===src && sel.col===col) ? null : {src, col, n};
+  render();
+}
+
+function canDrop(r){
+  if(!sel) return false;
+  return S.legal.some(a => a%6===r && Math.floor(a/6)%5===sel.col && Math.floor(a/30)===sel.src);
+}
+
+function play(dest){
+  if(!sel || busy) return;
+  const code = sel.src*30 + sel.col*6 + dest;
+  const rc = wasm.game_play(sel.src, sel.col, dest);
+  if(rc!==0){ alert('非法走法'); return; }
+  sel = null;
+  render();
+  maybeAi();
+}
+
+function maybeAi(){
+  if(S.ended || S.turn===0) return;   // turn=0 是你；AI 只在自己回合走
+  busy = true; render();
+  setTimeout(()=>{
+    const sims = parseInt(document.getElementById('sims').value, 10);
+    const code = wasm.game_ai(sims);
+    busy = false;
+    let note = '';
+    if(code!==0xFFFFFFFF){
+      const src = Math.floor(code/30), col = Math.floor(code/6)%5, dest = code%6;
+      const from = src===5 ? '公共牌堆' : `盘${src+1}`;
+      const to = dest===5 ? '罚分条' : `第${dest+1}行`;
+      note = `AI：从${from}拿<b>${COLS[col]}</b> → ${to}。`;
+    }
+    render();
+    if(note && S.turn===0 && !S.ended){
+      document.getElementById('status').innerHTML = note + ' 轮到你。';
+    }
+    // 新一轮轮到 AI（拿了先手标记）时继续走，不能卡住
+    if(!S.ended && S.turn!==0) maybeAi();
+  }, 60);
+}
+
+// ---- wasm 装载 ----
+WebAssembly.instantiateStreaming(fetch('azul_wasm.wasm'), {})
+  .then(({instance})=>{ wasm = instance.exports; newGame(); })
+  .catch(()=>{ // 某些环境不支持 streaming，退化为 ArrayBuffer
+    fetch('azul_wasm.wasm').then(r=>r.arrayBuffer())
+      .then(buf=>WebAssembly.instantiate(buf, {}))
+      .then(({instance})=>{ wasm = instance.exports; newGame(); });
+  });
+</script>
+</body>
+</html>

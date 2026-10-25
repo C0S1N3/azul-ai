@@ -50,6 +50,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-wasm"
+version = "0.1.0"
+dependencies = [
+ "azul-az",
+ "azul-core",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
