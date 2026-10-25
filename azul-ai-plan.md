@@ -22,7 +22,7 @@
 | 代码产出方式 | 〔D-ai〕LLM 写代码 + 人定方向 | Dan 实测所有模型无人监督都会失败，必须人把控方向 |
 
 **双引擎路线总览（已定决策）**：
-- **主力**：Minimax+NNUE 快速冲超人（Rzepecki 骨架，本方案阶段 0–4）。
+- **主力**：Minimax+NNUE 快速把棋力拉起来（Rzepecki 骨架，本方案阶段 0–4）。
 - **副轨**：AlphaZero（policy/value 网 + batched MCTS + 自对弈），工程范式取 bkase/azul + cestpasphoto/alpha-zero-general（阶段 5，与 3/4 并行或后置）。
 - **融合**：NNUE 作 MCTS 叶子快速评估/着法排序；强 minimax 当 self-play 教练/陪练；两轨数据互通。
 
@@ -282,7 +282,7 @@ Dan 的原话级结论：他的 AI 算法层面只"略胜一筹"（他自认比 
 
 ## 参考资料
 
-- Rzepecki 2025, *Azul AI 与 NNUE 变体*（弗罗茨瓦夫大学硕士论文，导师 Jakub Kowalski）：https://jakubkowalski.tech/Supervising/
+- Rzepecki, M. 2025，Azul + NNUE 变体的硕士论文（弗罗茨瓦夫大学，导师 Jakub Kowalski）：https://jakubkowalski.tech/Supervising/
 - Dan Luu, *Agentic test processes, LLM benchmarks…*：https://danluu.com/ai-coding
 - Dan Luu, *There's no reason for software to be slow anymore*：https://danluu.com/perf-opt/
 - Dan Luu 公开 bot（北极星）：https://danluu.com/game/tile/
