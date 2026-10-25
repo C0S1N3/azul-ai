@@ -1,4 +1,4 @@
-//! Rulebook-conformance unit tests (plan stage 0 §5: 规则书核对结论).
+//! Rulebook-conformance unit tests (plan stage 0 §5: rulebook verification conclusions).
 //! Each test verifies one conclusion from the official rulebook.
 
 use super::*;
@@ -146,7 +146,8 @@ fn floor_score_never_negative() {
 }
 
 /// Rulebook: COMPLETE pattern lines lose their remaining tiles to the lid;
-/// INCOMPLETE lines keep their tiles for the next round (勘误已固化).
+/// INCOMPLETE lines keep their tiles for the next round (the erratum is now
+/// baked in).
 #[test]
 fn wall_tiling_keeps_incomplete_lines() {
     let mut st = SlowState::new(7);

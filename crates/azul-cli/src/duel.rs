@@ -13,8 +13,9 @@ use azul_nnue::{HybridEvaluator, NnueEvaluator};
 use azul_search::eval::{Heuristic0, Heuristic11};
 use std::fs;
 
-/// AlphaZero agent：policy+value 网 + MCTS（PUCT），每手跑 `sims` 次模拟，
-/// 取根访问分布的 argmax（对局用途不加 Dirichlet 噪声，走子确定）。
+/// AlphaZero agent: policy+value net + MCTS (PUCT), running `sims` simulations
+/// per move and taking the argmax of the root visit distribution (no Dirichlet
+/// noise for duels, so play is deterministic).
 struct AzAgent {
     net: PvNet,
     sims: u32,
@@ -47,7 +48,8 @@ impl Agent for AzAgent {
     }
 }
 
-/// 载入 policy+value 网："random" 或文件缺失时用确定性随机初始化。
+/// Load a policy+value net: deterministic random initialisation for "random"
+/// or a missing file.
 fn load_pv_net(path: &str, seed: u64) -> PvNet {
     if path == "random" {
         let mut net = PvNet::new();

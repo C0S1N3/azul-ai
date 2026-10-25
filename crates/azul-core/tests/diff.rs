@@ -145,7 +145,8 @@ fn hash_tracks_state() {
 }
 
 /// Move-generation speed smoke check (no strict threshold here; the release
-/// benchmark in azul-cli `perft` carries the ≥数万/秒 acceptance).
+/// benchmark in azul-cli `perft` carries the ≥ tens of thousands per second
+/// acceptance).
 #[test]
 fn movegen_smoke() {
     let mut st = FastState::new(99);

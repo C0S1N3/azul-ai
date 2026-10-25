@@ -1,7 +1,7 @@
 //! Slow reference engine — clarity first, correctness above all.
 //! Authority: official Plan B Games rulebook (plan stage 0 §5 conclusions).
 //!
-//! Key rulebook points implemented here (see docs/worklog.md "规则口径快查"):
+//! Key rulebook points implemented here (see docs/worklog.md "rules quick reference"):
 //! - Game ends AFTER the full round (wall-tiling + floor scoring) in which
 //!   someone completes a wall row. Bonuses then awarded to all players.
 //! - Complete pattern lines: rightmost tile -> wall (score immediately),

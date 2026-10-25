@@ -1,25 +1,30 @@
-//! replay buffer（plan stage 5，本期极简）。
+//! Replay buffer (plan stage 5, minimal for this phase).
 //!
-//! 当前口径：selfplay 直接产出的单批数据即数据集（train/train_az.py 直接读
-//! 二进制文件），不做缓冲/采样。
+//! Current design: the single batch of data produced directly by self-play is
+//! the dataset (train/train_az.py reads the binary file directly); no
+//! buffering/sampling is done.
 //!
-//! TODO（garden 教训："无 replay buffer"失败——但本期先用单批数据验证管线
-//! 通，之后再补）：
-//!   - 多代网络自对弈数据的混合缓冲（按局/按代采样，防止对最新权重过拟合）
-//!   - 优先级/均衡采样（按对局结果、按 value target 分布）
-//!   - 磁盘多文件索引 + 随机 batch 读取
+//! TODO (garden lesson: "no replay buffer" failed — but this phase first
+//! validates the pipeline end-to-end with a single batch of data, and adds
+//! these later):
+//!   - Mixed buffer of self-play data across network generations (sampling by
+//!     game/generation to avoid overfitting to the latest weights)
+//!   - Priority / balanced sampling (by game outcome, by value-target
+//!     distribution)
+//!   - Multi-file disk index + random batch reads
 
 use crate::selfplay::{Sample, RECORD_BYTES};
 use azul_nnue::features::FEATURE_DIM;
 use crate::action::ACTION_DIM;
 
-/// 单批数据集：selfplay 输出文件的内存镜像。本期唯一的数据载体。
+/// Single-batch dataset: an in-memory mirror of the self-play output file.
+/// The only data carrier in this phase.
 pub struct Dataset {
     pub samples: Vec<Sample>,
 }
 
 impl Dataset {
-    /// 从 selfplay 二进制文件加载（校验记录对齐）。
+    /// Load from a self-play binary file (validates record alignment).
     pub fn load(path: &str) -> std::io::Result<Self> {
         let bytes = std::fs::read(path)?;
         if bytes.len() % RECORD_BYTES != 0 {
@@ -65,7 +70,7 @@ mod tests {
     use crate::net::PvNet;
     use crate::selfplay::{play_game, SelfplayConfig};
 
-    /// selfplay 输出 -> Dataset::load 往返一致。
+    /// Self-play output -> Dataset::load round trip is consistent.
     #[test]
     fn dataset_roundtrip() {
         let mut net = PvNet::new();

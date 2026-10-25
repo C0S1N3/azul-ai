@@ -1,5 +1,6 @@
 //! Duel harness + Elo (plan stage 1 §anchor pool v1). Games use paired seeds
-//! (each seed plays both sides) to cut variance — the plan's 配对种子 discipline.
+//! (each seed plays both sides) to cut variance — the plan's paired-seed
+//! discipline.
 
 use crate::agent::Agent;
 use azul_core::fast::FastState;

@@ -1,15 +1,19 @@
-//! 自对弈生成训练数据（plan stage 5）。
+//! Self-play generation of training data (plan stage 5).
 //!
-//! 每局：双方共用同一 policy+value 网，各自每手跑 MCTS（带根 Dirichlet 噪声），
-//! 按根访问分布走子（温度 τ：前 `temp_cutoff` 手 τ=1 抽样，之后 argmax）。
+//! Per game: both players share the same policy+value net, each running MCTS
+//! (with root Dirichlet noise) on every move, and play according to the root
+//! visit distribution (temperature τ: sample with τ=1 for the first
+//! `temp_cutoff` moves, argmax afterwards).
 //!
-//! 数据格式（小端），每个位置一条记录：
-//!   [171 f32 obs][180 f32 policy target（根访问分布归一化）]
-//!   [1 f32 value target（该位置待走方的终局 {-1,0,1}）]
-//! 共 (171 + 180 + 1) × 4 = 1408 字节/条。
+//! Data format (little-endian), one record per position:
+//!   [171 f32 obs][180 f32 policy target (normalised root visit distribution)]
+//!   [1 f32 value target (final {-1,0,1} outcome from the side to move at this
+//!   position)]
+//! (171 + 180 + 1) × 4 = 1408 bytes per record.
 //!
-//! 并行模型与 azul-cli/src/gen_data.rs 一致：对局级并行（std::thread::scope
-//! 按局分片、按局序合并），每局 seed 由 base_seed 派生，输出逐字节确定。
+//! The parallelism model matches azul-cli/src/gen_data.rs: game-level
+//! parallelism (std::thread::scope shards by game, merged in game order), each
+//! game's seed derived from base_seed, output byte-for-byte deterministic.
 
 use crate::action::ACTION_DIM;
 use crate::mcts::{Mcts, MctsConfig, DEFAULT_SIMS};
@@ -20,20 +24,21 @@ use azul_nnue::features::FEATURE_DIM;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
-/// 每条记录字节数：obs + policy + value。
+/// Bytes per record: obs + policy + value.
 pub const RECORD_BYTES: usize = (FEATURE_DIM + ACTION_DIM + 1) * 4;
-/// value target 的取值集合 {-1, 0, 1}（待走方视角）。
+/// Value-target values {-1, 0, 1} (from the side to move's perspective).
 pub const VALUE_SCALE: f32 = 1.0;
 
 pub struct SelfplayConfig {
     pub games: u32,
     pub base_seed: u64,
-    /// 每手 MCTS 模拟数。
+    /// MCTS simulations per move.
     pub sims: u32,
-    /// 前 temp_cutoff 手 τ=1 抽样（按根访问分布），之后 argmax。
+    /// Sample with τ=1 (from the root visit distribution) for the first
+    /// temp_cutoff moves, argmax afterwards.
     pub temp_cutoff: u32,
     pub out: String,
-    /// Dirichlet 根噪声（自对弈探索）。1 = 开，0 = 关。
+    /// Dirichlet root noise (self-play exploration). 1 = on, 0 = off.
     pub dirichlet: bool,
 }
 
@@ -50,7 +55,8 @@ impl Default for SelfplayConfig {
     }
 }
 
-/// 每条记录 = 一个位置：obs、根访问分布、终局价值（待走方视角）。
+/// One record = one position: obs, root visit distribution, final value
+/// (from the side to move's perspective).
 pub struct Sample {
     pub obs: [f32; FEATURE_DIM],
     pub policy: [f32; ACTION_DIM],
@@ -69,13 +75,15 @@ impl Sample {
     }
 }
 
-/// 游戏级 seed（与 gen_data::game_seed 同配方，保持全库一致）。
+/// Game-level seed (same recipe as gen_data::game_seed, kept consistent
+/// across the whole workspace).
 fn game_seed(base_seed: u64, g: u32) -> u64 {
     base_seed.wrapping_add(g as u64 * 0x9E37_79B9) | 1
 }
 
-/// 从根访问分布选着法：前 temp_cutoff 手 τ=1 按分布抽样，之后 argmax。
-/// `rng` 决定抽样（确定性可复现）。
+/// Pick a move from the root visit distribution: sample with τ=1 from the
+/// distribution for the first temp_cutoff moves, argmax afterwards.
+/// `rng` drives the sampling (deterministic and reproducible).
 fn pick_move(policy: &[f32; ACTION_DIM], rng: &mut Rnd, temp_cutoff: u32, ply: u32) -> usize {
     if ply < temp_cutoff {
         // τ=1：按访问分布抽样。
@@ -108,15 +116,17 @@ fn pick_move(policy: &[f32; ACTION_DIM], rng: &mut Rnd, temp_cutoff: u32, ply: u
     }
 }
 
-/// 确保抽样出的动作是合法着法：policy 只在合法着法上有质量，但浮点抽样
-/// 可能落到 0 质量非法位；保险起见把非法结果夹回首个合法着法。
+/// Ensure the sampled action is a legal move: the policy only has mass on legal
+/// moves, but floating-point sampling may land on a zero-mass illegal index;
+/// as a safeguard, clamp illegal results back to the most-visited legal move.
 fn legal_indices(st: &FastState) -> Vec<usize> {
     let mut buf = MoveBuf::new();
     st.legal_into(&mut buf);
     buf.iter().map(|m| crate::action::to_index(&m)).collect()
 }
 
-/// 打一局自对弈，返回全部位置样本（含终局回填 value target）。
+/// Play one self-play game and return samples for all positions (with the
+/// value target back-filled at the end of the game).
 pub fn play_game(net: &PvNet, cfg: &SelfplayConfig, seed: u64) -> Vec<Sample> {
     let mut st = FastState::new(seed);
     let mut game_rng = Rnd::new(seed ^ 0x5A17);
@@ -162,8 +172,9 @@ pub fn play_game(net: &PvNet, cfg: &SelfplayConfig, seed: u64) -> Vec<Sample> {
     positions.into_iter().map(|(s, _)| s).collect()
 }
 
-/// 生成 `cfg.games` 局自对弈数据写入 `cfg.out`（创建父目录）。
-/// 对局级并行、按局序合并 —— 输出逐字节确定。返回写入的样本条数。
+/// Generate `cfg.games` self-play games and write them to `cfg.out` (creating
+/// the parent directory). Game-level parallelism, merged in game order — the
+/// output is byte-for-byte deterministic. Returns the number of samples written.
 pub fn run(net: &PvNet, cfg: &SelfplayConfig) -> usize {
     if let Some(parent) = std::path::Path::new(&cfg.out).parent() {
         if !parent.as_os_str().is_empty() {
@@ -218,7 +229,8 @@ pub fn run(net: &PvNet, cfg: &SelfplayConfig) -> usize {
 mod tests {
     use super::*;
 
-    /// 自对弈 smoke：2 局跑得完、数据条数 = 位置数、记录字节数对齐。
+    /// Self-play smoke test: 2 games complete, sample count = number of
+    /// positions, record byte size is aligned.
     #[test]
     fn selfplay_smoke_two_games() {
         let mut net = PvNet::new();
@@ -246,7 +258,8 @@ mod tests {
         assert_eq!(samples, expected, "sample count must equal total positions");
     }
 
-    /// value target 只能取 {-1, 0, 1}，且每条 obs/policy 维度正确。
+    /// Value targets must be in {-1, 0, 1}, and every obs/policy must have the
+    /// right dimensionality.
     #[test]
     fn selfplay_targets_sane() {
         let mut net = PvNet::new();

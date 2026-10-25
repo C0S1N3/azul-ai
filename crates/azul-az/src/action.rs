@@ -1,24 +1,27 @@
-//! 动作编码：Azul 着法 <--> 180 维策略动作空间（garden 180 动作空间对齐）。
+//! Action encoding: Azul moves <--> 180-dim policy action space (aligned with
+//! the garden 180-action space).
 //!
-//! 编码公式：`idx = src * 30 + colour * 6 + dest`
-//!   - `src`   ∈ 0..6  ：0-4 = 工厂 Factory(f)，5 = 中央 Centre
-//!   - `colour`∈ 0..5  ：砖色 0..4
-//!   - `dest`  ∈ 0..6  ：0-4 = 图案行 Row(r)，5 = 地板 Floor
+//! Encoding formula: `idx = src * 30 + colour * 6 + dest`
+//!   - `src`   ∈ 0..6  : 0-4 = factory Factory(f), 5 = centre Centre
+//!   - `colour`∈ 0..5  : tile colour 0..4
+//!   - `dest`  ∈ 0..6  : 0-4 = pattern line Row(r), 5 = floor line Floor
 //!
-//! 共 6 × 5 × 6 = 180 个动作。训练侧（train/train_az.py）的 policy 头输出
-//! 180 个 logits，必须使用同一编码顺序（colour 维最内层、dest 维最内层）。
+//! 6 × 5 × 6 = 180 actions in total. The policy head on the training side
+//! (train/train_az.py) outputs 180 logits and must use the same encoding order
+//! (dest innermost, then colour, then src).
 
 use azul_core::types::{Dest, Move, Source, NUM_COLOURS, NUM_FACTORIES, PATTERN_LINES};
 
-/// 动作空间大小（garden 180）。
+/// Action-space size (garden 180).
 pub const ACTION_DIM: usize = 180;
 
-/// 源数量：5 工厂 + 1 中央。
+/// Number of sources: 5 factories + 1 centre.
 pub const NUM_SOURCES: usize = NUM_FACTORIES + 1;
-/// 目的地数量：5 图案行 + 1 地板。
+/// Number of destinations: 5 pattern lines + 1 floor.
 pub const NUM_DESTS: usize = PATTERN_LINES + 1;
 
-/// 着法 -> 动作索引。非法着法（越界字段）不在此处校验，由调用方保证合法。
+/// Move -> action index. Illegal moves (out-of-range fields) are not validated
+/// here; the caller must guarantee legality.
 #[inline]
 pub fn to_index(m: &Move) -> usize {
     let src = match m.source {
@@ -32,7 +35,7 @@ pub fn to_index(m: &Move) -> usize {
     src * (NUM_COLOURS * NUM_DESTS) + m.colour as usize * NUM_DESTS + dest
 }
 
-/// 动作索引 -> 着法（`to_index` 的逆）。索引必须 < 180。
+/// Action index -> move (the inverse of `to_index`). The index must be < 180.
 #[inline]
 pub fn from_index(idx: usize) -> Move {
     debug_assert!(idx < ACTION_DIM, "action index out of range: {}", idx);
@@ -51,7 +54,7 @@ pub fn from_index(idx: usize) -> Move {
 mod tests {
     use super::*;
 
-    /// 往返恒等：index -> Move -> index 必须对全部 180 个索引成立。
+    /// Round-trip identity: index -> Move -> index must hold for all 180 indices.
     #[test]
     fn index_roundtrip_identity() {
         for idx in 0..ACTION_DIM {
@@ -60,7 +63,8 @@ mod tests {
         }
     }
 
-    /// Move -> index -> Move 往返恒等（覆盖全部 src/colour/dest 组合）。
+    /// Move -> index -> Move round-trip identity (covers all src/colour/dest
+    /// combinations).
     #[test]
     fn move_roundtrip_identity() {
         for src in 0..NUM_SOURCES {

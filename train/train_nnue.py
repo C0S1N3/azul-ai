@@ -1,6 +1,7 @@
 """NNUE value-net training (plan stage 2.4 — Rzepecki recipe, default).
 
-Recipe (Rzepecki §5.3.3 实测, user decision: 论文实测优先):
+Recipe (Rzepecki §5.3.3 measurements, user decision: the paper's measured
+results take priority):
   - fully-connected value net: 64-128-16-16-1 (dim must match Rust FEATURE_DIM)
   - hidden ReLU, output sigmoid, trained with BCE against {loss=0, draw=0.5, win=1}
   - AdamW, lr 0.001 -> decay, ~20 epochs, weight_decay 1e-4

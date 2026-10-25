@@ -1,4 +1,4 @@
-//! NNUE input features (plan stage 2 §2.1: "编码 5" — rich hand-crafted
+//! NNUE input features (plan stage 2 §2.1: "encoding 5" — rich hand-crafted
 //! features, whole-position encoding, side-to-move perspective).
 //!
 //! The feature vector must be IDENTICAL between Rust (inference) and the

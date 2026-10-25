@@ -1,9 +1,11 @@
-//! azul-wasm: 浏览器对弈导出层。
+//! azul-wasm: browser play export layer.
 //!
-//! 单线程 wasm，无 wasm-bindgen——JS 直接调 extern "C" 函数：
-//! `game_new` / `game_json`(+`game_json_len`) / `game_play` / `game_ai`。
-//! 动作编码 `src*30 + colour*6 + dest`：src 0..4=工厂、5=公共牌堆；
-//! dest 0..4=图案行、5=罚分条。JSON 输出落在全局缓冲，JS 按 ptr+len 读内存。
+//! Single-threaded wasm, no wasm-bindgen — JS calls extern "C" functions
+//! directly:
+//! `game_new` / `game_json`(+`game_json_len`) / `game_play` / `game_ai`.
+//! Action encoding `src*30 + colour*6 + dest`: src 0..4=factory, 5=centre;
+//! dest 0..4=pattern line, 5=floor line. JSON output lands in a global buffer;
+//! JS reads memory via ptr+len.
 
 use std::cell::RefCell;
 use std::sync::OnceLock;
@@ -15,7 +17,7 @@ use azul_core::rng::Rnd;
 use azul_core::slow::FloorItem;
 use azul_core::types::*;
 
-/// 冠军网络直接编进 wasm（约 625KB）。
+/// The champion net is compiled straight into the wasm (~625KB).
 const NET_BYTES: &[u8] = include_bytes!("../../../out/az_net7.bin");
 
 fn net() -> &'static PvNet {
@@ -33,8 +35,10 @@ fn pack(src: u8, colour: u8, dest: u8) -> u32 {
     (src as u32) * 30 + (colour as u32) * 6 + (dest as u32)
 }
 
-/// 新局。seed 拆两个 u32 传（JS 的 number 精度只到 2^53，直接收 u64 不可靠）。
-/// `first`=0 时玩家 0（人类）先手，=1 时玩家 1（AI）先手。
+/// Start a new game. The seed is split into two u32s (JS numbers only have
+/// 2^53 of precision, so receiving a u64 directly is unreliable).
+/// With `first`=0 player 0 (human) moves first; with =1 player 1 (AI) moves
+/// first.
 #[no_mangle]
 pub extern "C" fn game_new(seed_lo: u32, seed_hi: u32, first: u32) {
     let seed = ((seed_hi as u64) << 32) | seed_lo as u64;
@@ -46,7 +50,7 @@ pub extern "C" fn game_new(seed_lo: u32, seed_hi: u32, first: u32) {
     RNG.with(|r| *r.borrow_mut() = Rnd::new(seed ^ 0x9E37_79B9));
 }
 
-/// 走子。返回 0=成功 1=非法 2=对局已结束。
+/// Play a move. Returns 0=success, 1=illegal, 2=game already over.
 #[no_mangle]
 pub extern "C" fn game_play(src: u8, colour: u8, dest: u8) -> u32 {
     STATE.with(|s| {
@@ -70,7 +74,8 @@ pub extern "C" fn game_play(src: u8, colour: u8, dest: u8) -> u32 {
     })
 }
 
-/// AI 走子：MCTS(champion net)。返回打包动作；0xFFFF_FFFF=无着法（终局）。
+/// AI move: MCTS(champion net). Returns the packed action;
+/// 0xFFFF_FFFF=no move (game over).
 #[no_mangle]
 pub extern "C" fn game_ai(sims: u32) -> u32 {
     STATE.with(|s| {
@@ -110,7 +115,8 @@ pub extern "C" fn game_ai(sims: u32) -> u32 {
     })
 }
 
-/// 当前状态 JSON 写入全局缓冲，返回指针；长度用 game_json_len()。
+/// Write the current state JSON into the global buffer and return the pointer;
+/// get the length with game_json_len().
 #[no_mangle]
 pub extern "C" fn game_json() -> *const u8 {
     let json = STATE.with(|s| state_json(&s.borrow()));

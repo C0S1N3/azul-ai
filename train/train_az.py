@@ -1,27 +1,30 @@
-"""AlphaZero policy+value 双头网络训练（plan stage 5）。
+"""AlphaZero policy+value two-headed net training (plan stage 5).
 
-结构（必须与 crates/azul-az/src/net.rs 严格一致）：
-  trunk  : 171 -> 256 -> 256，层间 ReLU
-  policy : 256 -> 180 logits（训练时对 logits 做 log_softmax）
-  value  : 256 -> 1，tanh
+Architecture (must match crates/azul-az/src/net.rs exactly):
+  trunk  : 171 -> 256 -> 256, ReLU between layers
+  policy : 256 -> 180 logits (log_softmax applied to the logits at training time)
+  value  : 256 -> 1, tanh
 
-损失：
-  policy = 对根访问分布的交叉熵（soft target，等价于 KL 散度 + 常数）
-  value  = MSE（target ∈ {-1, 0, 1}，待走方视角）
-总损失 = policy_loss + value_loss（等权）。
+Loss:
+  policy = cross-entropy against the root visit distribution (soft target,
+           equivalent to KL divergence + a constant)
+  value  = MSE (target in {-1, 0, 1}, from the side to move's perspective)
+  total loss = policy_loss + value_loss (equal weights).
 
-优化：AdamW + OneCycleLR。
+Optimisation: AdamW + OneCycleLR.
 
-输入数据：`azul az-selfplay` 产出的二进制记录（小端，逐位置一条）：
-  [171 f32 obs][180 f32 policy target（根访问分布）][1 f32 value target]
+Input data: binary records produced by `azul az-selfplay` (little-endian, one
+record per position):
+  [171 f32 obs][180 f32 policy target (root visit distribution)][1 f32 value target]
 
-导出格式（与 net.rs 的 PvNet::from_bytes 严格对齐，小端）：
+Export format (exactly aligned with PvNet::from_bytes in net.rs, little-endian):
   [u32 n_dims = 2][u32 171][u32 256][u32 256][u32 180][u32 1]
-  trunk 层 0 : [f32 × (256*171) 权重][f32 × 256 偏置]
-  trunk 层 1 : [f32 × (256*256) 权重][f32 × 256 偏置]
-  policy 头  : [f32 × (180*256) 权重][f32 × 180 偏置]
-  value 头   : [f32 × (1*256) 权重][f32 × 1 偏置]
-权重均为 row-major (out, in)，即 PyTorch nn.Linear.weight 的 C-order 原样写出。
+  trunk layer 0 : [f32 x (256*171) weights][f32 x 256 biases]
+  trunk layer 1 : [f32 x (256*256) weights][f32 x 256 biases]
+  policy head   : [f32 x (180*256) weights][f32 x 180 biases]
+  value head    : [f32 x (1*256) weights][f32 x 1 biases]
+Weights are all row-major (out, in), i.e. PyTorch nn.Linear.weight written out
+as-is in C order.
 
 Run:
   python \
@@ -61,7 +64,7 @@ def load_dataset(path):
 
 
 class AzNet(nn.Module):
-    """trunk(171-256-256 ReLU) + policy(180 logits) + value(tanh)。"""
+    """trunk(171-256-256 ReLU) + policy(180 logits) + value(tanh)."""
 
     def __init__(self, hidden=TRUNK_HIDDEN):
         super().__init__()
@@ -78,7 +81,7 @@ class AzNet(nn.Module):
 
 
 def export_rust(net, path):
-    """Write weights in azul_az::net::PvNet::from_bytes format（严格对齐）。"""
+    """Write weights in azul_az::net::PvNet::from_bytes format (strictly aligned)."""
     with open(path, "wb") as f:
         f.write(struct.pack("<I", 2))  # n_dims
         for d in net.trunk_dims:

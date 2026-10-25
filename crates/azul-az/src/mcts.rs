@@ -1,25 +1,37 @@
-//! 单树 MCTS（PUCT）——AlphaZero 轨道的搜索核心（plan stage 5）。
+//! Single-tree MCTS (PUCT) — the search core of the AlphaZero track
+//! (plan stage 5).
 //!
-//! # ⚠️ 视角翻转规则（worklog bug #4 的教训，绝不能重蹈）
+//! # ⚠️ Perspective flip rule (the lesson of worklog bug #4; never regress)
 //!
-//! `FastState::apply()` 在游戏结束时**不翻转 `turn`**，且补砖后的新回合由
-//! 先手标记（first-player marker）持有者开始——**同一玩家可以合法连走两手**。
-//! 因此任何"父 → 子取反"的备份逻辑（MCTS backup、minimax negamax）都
-//! **只在 `turn` 改变时取反**，否则赢/输符号会翻转（"我赢"被读成 -1）。
-//! 参见 azul-search/src/search.rs 的 `child_value` 注释。本文件的备份
-//! (`simulate`) 与选择 (`select_action`) 都显式比较 turn 后再决定符号。
+//! `FastState::apply()` **does not flip `turn`** when the game ends, and after
+//! the tile refill the new turn starts with the holder of the first-player
+//! marker — **the same player may legally take two moves in a row**. Therefore
+//! any "parent → child negation" backup logic (MCTS backup, minimax negamax)
+//! **negates only when `turn` changes**, otherwise win/loss signs flip
+//! ("I win" is read as -1). See the `child_value` comment in
+//! azul-search/src/search.rs. In this file both the backup (`simulate`) and the
+//! selection (`select_action`) explicitly compare turns before deciding the
+//! sign.
 //!
-//! # 设计
-//! - 节点统计：N、W、Q、先验 P；子节点按 180 索引稀疏存储（只展开合法着法）。
-//! - 选择：`Q + c_puct * P * sqrt(N_parent) / (1 + N)`，Q 恒从**该节点待走方**
-//!   视角存储；选择时换算到父方视角（turn 相同则不换算——同上警告）。
-//! - 叶评估：直接取 net value（不做随机 rollout——已证伪）；终局节点用真实
-//!   结果 `GameResult::value_for(turn)`（±1）。
-//! - 补砖随机性：着法触发回合结束（triggers_refill）时用确定性 chance seed
-//!   （由 position hash + move identity 派生），单样本起步，留 `chance_samples`
-//!   参数。同一（局面, 着法）永远抽到同一补砖，逐字节可复现。
-//! - 根 Dirichlet 噪声（α=0.3, ε=0.25）仅自对弈时开（`dirichlet` 参数化）。
-//! - 无 transposition table（起步口径）：不合并转置，每条边独立子树。
+//! # Design
+//! - Node statistics: N, W, Q, prior P; children are stored sparsely by 180
+//!   indices (only legal moves are expanded).
+//! - Selection: `Q + c_puct * P * sqrt(N_parent) / (1 + N)`, with Q always
+//!   stored from the **side to move at that node**; converted to the parent's
+//!   perspective at selection time (no conversion when the turn is the
+//!   same — see the warning above).
+//! - Leaf evaluation: take the net value directly (no random rollout — that was
+//!   disproven); terminal nodes use the real result
+//!   `GameResult::value_for(turn)` (±1).
+//! - Refill randomness: when a move triggers the end of a round
+//!   (triggers_refill), a deterministic chance seed is used (derived from the
+//!   position hash + move identity), starting with a single sample, with a
+//!   `chance_samples` parameter left for later. The same (position, move) always
+//!   draws the same refill, byte-for-byte reproducible.
+//! - Root Dirichlet noise (α=0.3, ε=0.25) is enabled only for self-play
+//!   (parameterised by `dirichlet`).
+//! - No transposition table (initial scope): transpositions are not merged;
+//!   every edge is an independent subtree.
 
 use crate::action::{self, ACTION_DIM};
 use crate::net::PvNet;
@@ -27,15 +39,16 @@ use azul_core::fast::{FastState, MoveBuf};
 use azul_core::rng::Rnd;
 use azul_core::types::{Dest, Move, Source, NUM_FACTORIES, PATTERN_LINES};
 
-/// PUCT 探索常数（AlphaZero 论文口径）。
+/// PUCT exploration constant (AlphaZero paper values).
 pub const C_PUCT: f32 = 1.5;
-/// Dirichlet 噪声浓度 α。
+/// Dirichlet noise concentration α.
 pub const DIRICHLET_ALPHA: f32 = 0.3;
-/// 根噪声混合比例 ε。
+/// Root noise mixing ratio ε.
 pub const DIRICHLET_EPS: f32 = 0.25;
-/// 默认补砖样本数（单样本确定性起步）。
+/// Default number of refill samples (starting with a deterministic single
+/// sample).
 pub const DEFAULT_CHANCE_SAMPLES: u64 = 1;
-/// 默认每手模拟数。
+/// Default simulations per move.
 pub const DEFAULT_SIMS: u32 = 160;
 
 // ---------------------------------------------------------------------------
@@ -43,7 +56,8 @@ pub const DEFAULT_SIMS: u32 = 160;
 // chance_seed 思路（那边是私有函数，此处独立实现，不动 azul-search）。
 // ---------------------------------------------------------------------------
 
-/// 着法 `m` 是否清空工厂+中央、触发回合结束与补砖（chance 事件）。
+/// Whether move `m` empties the factories + centre, triggering the end of the
+/// round and a tile refill (a chance event).
 pub fn triggers_refill(st: &FastState, m: &Move) -> bool {
     let mut in_play = 0u32;
     for f in 0..NUM_FACTORIES {
@@ -61,7 +75,7 @@ pub fn triggers_refill(st: &FastState, m: &Move) -> bool {
     in_play == taken
 }
 
-/// 着法的稳定身份（用于派生 chance seed）。
+/// Stable identity of a move (used to derive the chance seed).
 #[inline]
 fn move_identity(m: &Move) -> u64 {
     let s = match m.source {
@@ -75,8 +89,9 @@ fn move_identity(m: &Move) -> u64 {
     (s << 16) | ((m.colour as u64) << 8) | d
 }
 
-/// 由 (position hash, move identity, sample 序号) 派生确定性补砖 seed。
-/// 同一 (局面, 着法, 样本) 永远得到同一补砖 —— 树内一致、可复现。
+/// Derive a deterministic refill seed from (position hash, move identity,
+/// sample index). The same (position, move, sample) always yields the same
+/// refill — consistent within the tree and reproducible.
 #[inline]
 pub fn chance_seed(pos_key: u64, m: &Move, sample: u64) -> u64 {
     pos_key
@@ -89,31 +104,33 @@ pub fn chance_seed(pos_key: u64, m: &Move, sample: u64) -> u64 {
 // 树结构
 // ---------------------------------------------------------------------------
 
-/// 子节点未分配的哨兵。
+/// Sentinel for an unassigned child.
 const NO_CHILD: usize = usize::MAX;
 
-/// 稀疏子边：动作索引 + 先验 P + 子节点槽位（惰性分配）。
+/// Sparse child edge: action index + prior P + child slot (lazily allocated).
 struct Edge {
     action: usize,
     p: f32,
     child: usize,
 }
 
-/// 树节点。Q/W 从**该节点待走方**视角（负值 = 待走方劣势）。
+/// Tree node. Q/W are from the **side to move at this node** (negative =
+/// worse for the side to move).
 struct Node {
-    /// 待走方（FastState.turn）；终局节点保留最后待走方。
+    /// Side to move (FastState.turn); terminal nodes keep the last side to move.
     turn: u8,
-    /// 是否终局。
+    /// Whether the game is over.
     terminal: bool,
-    /// 终局价值（待走方视角 ±1/0）；非终局为 0。
+    /// Terminal value (±1/0 from the side to move's perspective); 0 when
+    /// non-terminal.
     terminal_value: f32,
-    /// 是否已展开（edges 就绪）。
+    /// Whether the node is expanded (edges are ready).
     expanded: bool,
-    /// 访问次数。
+    /// Visit count.
     n: u32,
-    /// 价值累计（本节点待走方视角）。
+    /// Accumulated value (from this node's side to move).
     w: f32,
-    /// 子边（先验 P 存边上）。
+    /// Child edges (the prior P is stored on the edges).
     edges: Vec<Edge>,
 }
 
@@ -132,12 +149,14 @@ impl Node {
 // 搜索配置与搜索器
 // ---------------------------------------------------------------------------
 
-/// 搜索配置。`dirichlet = true` 时根节点加 Dirichlet 噪声（自对弈用）。
+/// Search configuration. With `dirichlet = true` the root node gets Dirichlet
+/// noise (used for self-play).
 pub struct MctsConfig {
     pub sims: u32,
     pub c_puct: f32,
     pub dirichlet: bool,
-    /// 补砖样本数（参数化；>1 时对同一着法的不同补砖样本求期望，起步单样本）。
+    /// Number of refill samples (parameterised; with >1 the expectation is taken
+    /// over different refill samples of the same move, starting with one).
     pub chance_samples: u64,
 }
 
@@ -152,7 +171,8 @@ impl Default for MctsConfig {
     }
 }
 
-/// 单树 MCTS 搜索器。每次 `search` 以新局面重建根（不做树复用，起步口径）。
+/// Single-tree MCTS searcher. Each `search` rebuilds the root from the new
+/// position (no tree reuse, initial scope).
 pub struct Mcts<'a> {
     net: &'a PvNet,
     cfg: MctsConfig,
@@ -164,9 +184,10 @@ impl<'a> Mcts<'a> {
         Mcts { net, cfg, nodes: Vec::new() }
     }
 
-    /// 从 `st` 出发做 `cfg.sims` 次模拟，返回根节点访问分布（长度 180：
-    /// 各合法着法的 N/ΣN，非法/未访问为 0，总和 ≈ 1）。
-    /// `root_seed` 只用于根 Dirichlet 噪声（确定性可复现）。
+    /// Run `cfg.sims` simulations from `st` and return the root visit
+    /// distribution (length 180: N/ΣN for each legal move, 0 for
+    /// illegal/unvisited, summing to ≈ 1). `root_seed` is only used for the
+    /// root Dirichlet noise (deterministic and reproducible).
     pub fn search(&mut self, st: &FastState, root_seed: u64) -> [f32; ACTION_DIM] {
         self.nodes.clear();
         self.nodes.push(new_node(st)); // 根
@@ -183,12 +204,13 @@ impl<'a> Mcts<'a> {
         self.root_policy(0)
     }
 
-    /// 根节点的 Q（根待走方视角的估计价值）。`search` 后调用。
+    /// The root node's Q (estimated value from the root's side to move). Call
+    /// after `search`.
     pub fn root_q(&self) -> f32 {
         self.nodes.first().map(|r| r.q()).unwrap_or(0.0)
     }
 
-    /// 根访问分布 -> 180 维数组。
+    /// Root visit distribution -> 180-dim array.
     fn root_policy(&self, root: usize) -> [f32; ACTION_DIM] {
         let node = &self.nodes[root];
         let mut out = [0.0f32; ACTION_DIM];
@@ -208,7 +230,8 @@ impl<'a> Mcts<'a> {
         out
     }
 
-    /// 一次模拟：选择 -> 展开/评估叶 -> 视角正确地备份整条路径。
+    /// One simulation: select -> expand/evaluate leaf -> back up the whole path
+    /// with correct perspectives.
     fn simulate(&mut self, mut st: FastState) {
         // 路径：(节点索引, 到达该节点的着法；根为 None)。
         let mut path: Vec<(usize, Option<Move>)> = vec![(0, None)];
@@ -275,8 +298,10 @@ impl<'a> Mcts<'a> {
         }
     }
 
-    /// 从节点子边中按 PUCT `Q_parent + c_puct * P * sqrt(N_parent) / (1 + N)`
-    /// 选一条，返回动作索引。Q 换算到父方视角时遵守 turn 比较规则。
+    /// Pick an edge from the node's children by PUCT
+    /// `Q_parent + c_puct * P * sqrt(N_parent) / (1 + N)` and return the action
+    /// index. When converting Q to the parent's perspective, the turn-comparison
+    /// rule is observed.
     fn select_action(&self, node_i: usize) -> usize {
         let node = &self.nodes[node_i];
         let sqrt_n = (node.n.max(1) as f32).sqrt();
@@ -302,8 +327,9 @@ impl<'a> Mcts<'a> {
         best.expect("expanded node has at least one legal edge")
     }
 
-    /// 展开节点：合法着法 softmax 先验（只在合法动作上归一化）+ 稀疏子边。
-    /// 子节点在被选中时惰性分配（避免对每个兄弟做 net 前向）。
+    /// Expand a node: softmax priors over legal moves (normalised over legal
+    /// actions only) + sparse child edges. Children are lazily allocated when
+    /// selected (avoiding a net forward pass for every sibling).
     fn expand_node(&mut self, node_i: usize, st: &FastState, logits: &[f32; ACTION_DIM]) {
         if self.nodes[node_i].expanded {
             return;
@@ -347,7 +373,8 @@ impl<'a> Mcts<'a> {
         node.expanded = true;
     }
 
-    /// 根节点 Dirichlet 噪声：P ← (1-ε)·P + ε·Dir(α)，确定性由 root_seed 驱动。
+    /// Root Dirichlet noise: P ← (1-ε)·P + ε·Dir(α), deterministically driven
+    /// by root_seed.
     fn add_dirichlet_noise(&mut self, root: usize, seed: u64) {
         let node = &mut self.nodes[root];
         if node.edges.is_empty() {
@@ -369,7 +396,8 @@ impl<'a> Mcts<'a> {
     }
 }
 
-/// 新节点骨架（未展开）。turn/terminal/terminal_value 从局面直接读出。
+/// Fresh node skeleton (unexpanded). turn/terminal/terminal_value are read
+/// straight from the position.
 fn new_node(st: &FastState) -> Node {
     let turn = st.turn;
     let terminal = st.ended;
@@ -393,20 +421,21 @@ fn new_node(st: &FastState) -> Node {
 // 确定性随机数工具：Dirichlet 抽样（Marsaglia-Tsang Gamma + 归一化）
 // ---------------------------------------------------------------------------
 
-/// U(0,1)（避开 0/1 端点，防 log(0)）。
+/// U(0,1) (avoiding the 0/1 endpoints to prevent log(0)).
 #[inline]
 fn uniform01(rng: &mut Rnd) -> f32 {
     (rng.next_u64() as f32 / u64::MAX as f32).clamp(f32::MIN_POSITIVE, 1.0 - 1e-7)
 }
 
-/// 标准正态（Box-Muller）。
+/// Standard normal (Box-Muller).
 fn normal01(rng: &mut Rnd) -> f32 {
     let u1 = uniform01(rng);
     let u2 = uniform01(rng);
     (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos()
 }
 
-/// Gamma(α, 1) 抽样（Marsaglia-Tsang；α < 1 用 boost 乘法技巧）。
+/// Gamma(α, 1) sampling (Marsaglia-Tsang; for α < 1 the boost multiplication
+/// trick is used).
 fn gamma_sample(rng: &mut Rnd, alpha: f32) -> f32 {
     if alpha < 1.0 {
         let u = uniform01(rng);
@@ -447,7 +476,8 @@ mod tests {
         net
     }
 
-    /// 空白中期局面（bag 满，测试用局面不会触发真实补砖以外的分支）。
+    /// Blank mid-game position (full bag; the test positions avoid any branch
+    /// other than real refills).
     fn base_state() -> FastState {
         let mut st = FastState::new(0x5EED);
         st.factories = [0; NUM_FACTORIES];
@@ -460,9 +490,10 @@ mod tests {
         st
     }
 
-    /// 与 azul-search/src/search/tests.rs 的 win_in_two_position 同构：
-    /// 玩家 0 走"中央 colour-4 -> 行 0"完成图案行，对手唯一回着后墙铺砖
-    /// 完成墙行 0 -> 游戏结束，玩家 0 获胜。
+    /// Isomorphic to win_in_two_position in azul-search/src/search/tests.rs:
+    /// player 0 plays "centre colour-4 -> row 0" to complete a pattern line,
+    /// after the opponent's only reply the wall tiling completes wall row 0 ->
+    /// the game ends and player 0 wins.
     fn win_in_two_position() -> FastState {
         let mut st = base_state();
         st.players[0].wall = 0b0_1111; // 行 0 已放 colour 0,1,2,3；缺 4
@@ -473,7 +504,8 @@ mod tests {
         st
     }
 
-    /// 镜像局面：玩家 1 即将完成墙行 0，玩家 0 无论如何都会输。
+    /// Mirrored position: player 1 is about to complete wall row 0, and player
+    /// 0 loses no matter what.
     fn forced_loss_position() -> FastState {
         let mut st = base_state();
         st.players[1].wall = 0b0_1111;
@@ -485,8 +517,9 @@ mod tests {
         st
     }
 
-    /// 视角回归（bug #4）：MCTS 必须看到"一步即胜"——选中赢棋着法且根
-    /// value > 0.5。若备份符号错误，赢棋会被读成大负值。
+    /// Perspective regression (bug #4): MCTS must see the "win in one move" —
+    /// it must select the winning move and have root value > 0.5. If the backup
+    /// sign is wrong, the win is read as a large negative value.
     #[test]
     fn mcts_takes_immediate_win() {
         let st = win_in_two_position();
@@ -509,8 +542,8 @@ mod tests {
         assert!(mcts.root_q() > 0.5, "root value must read the win (>0.5), got {}", mcts.root_q());
     }
 
-    /// 镜像回归：全部着法都输时根 value 必须 < -0.5（符号翻转 bug 会读成
-    /// 大正值）。
+    /// Mirrored regression: when every move loses, the root value must be
+    /// < -0.5 (a sign-flip bug would read it as a large positive value).
     #[test]
     fn mcts_avoids_forced_loss() {
         let st = forced_loss_position();
@@ -521,7 +554,7 @@ mod tests {
         assert!(mcts.root_q() < -0.5, "root value must read the loss (<-0.5), got {}", mcts.root_q());
     }
 
-    /// 根访问分布只在合法着法上有质量、总和 ≈ 1。
+    /// The root visit distribution has mass only on legal moves and sums to ≈ 1.
     #[test]
     fn root_policy_legal_only() {
         let st = FastState::new(0x1234);
@@ -542,7 +575,8 @@ mod tests {
         assert!((sum - 1.0).abs() < 1e-3, "policy mass must be ~1, got {}", sum);
     }
 
-    /// 同 seed 搜索逐字节可复现（含 Dirichlet 噪声路径）。
+    /// Search with the same seed is byte-for-byte reproducible (including the
+    /// Dirichlet noise path).
     #[test]
     fn mcts_deterministic() {
         let st = FastState::new(0xABCDE);

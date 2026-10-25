@@ -1,64 +1,73 @@
-//! policy+value 双头网络的 Rust 推理（AlphaZero 轨道，plan stage 5）。
+//! Rust inference for the policy+value two-headed net (AlphaZero track,
+//! plan stage 5).
 //!
-//! 结构：
-//!   trunk  : 171 -> 256 -> 256，层间 ReLU
-//!   policy : 256 -> 180，输出 logits（不做 softmax，训练侧对 logits 做
-//!            交叉熵；MCTS 里再做先验归一化）
-//!   value  : 256 -> 1，tanh，输出 ∈ (-1, 1)，"当前待走方"视角的胜负值
+//! Architecture:
+//!   trunk  : 171 -> 256 -> 256, ReLU between layers
+//!   policy : 256 -> 180, outputs logits (no softmax; the training side applies
+//!            cross-entropy to the logits; MCTS normalises them into priors)
+//!   value  : 256 -> 1, tanh, output ∈ (-1, 1), win/loss score from the
+//!            "current side to move" perspective
 //!
-//! 观察向量复用 `azul_nnue::features::extract`（171 维，side-to-move 视角）。
+//! The observation vector reuses `azul_nnue::features::extract` (171 dims,
+//! side-to-move perspective).
 //!
-//! # 二进制布局（小端，Python 训练侧 train/train_az.py 必须严格对齐）
+//! # Binary layout
+//!
+//! Little-endian; the Python training side train/train_az.py must match it
+//! exactly.
 //!
 //! ```text
 //! [u32 n_dims = 2]
 //! [u32 in_dim = 171][u32 trunk_hidden = 256]
 //! [u32 policy_out = 180][u32 value_out = 1]
-//! trunk 层 0 : [f32 × (trunk_hidden * in_dim) 权重][f32 × trunk_hidden 偏置]
-//! trunk 层 1 : [f32 × (trunk_hidden * trunk_hidden) 权重][f32 × trunk_hidden 偏置]
-//! policy 头  : [f32 × (policy_out * trunk_hidden) 权重][f32 × policy_out 偏置]
-//! value 头   : [f32 × (value_out * trunk_hidden) 权重][f32 × value_out 偏置]
+//! trunk layer 0 : [f32 × (trunk_hidden * in_dim) weights][f32 × trunk_hidden biases]
+//! trunk layer 1 : [f32 × (trunk_hidden * trunk_hidden) weights][f32 × trunk_hidden biases]
+//! policy head   : [f32 × (policy_out * trunk_hidden) weights][f32 × policy_out biases]
+//! value head    : [f32 × (value_out * trunk_hidden) weights][f32 × value_out biases]
 //! ```
 //!
-//! 权重均为 row-major (out, in)：`w[j * fan_in + i]` = 输出 j、输入 i 的权重，
-//! 与 PyTorch `nn.Linear` 的 `weight` (out, in) 布局一致，可直接 tobytes 写出。
-//! 头部顺序固定为 policy 在前、value 在后。
+//! Weights are all row-major (out, in): `w[j * fan_in + i]` = weight for output
+//! j and input i, matching the layout of PyTorch `nn.Linear`'s `weight`
+//! (out, in), so it can be written out with tobytes directly. The head order is
+//! fixed: policy first, then value.
 
 use azul_core::fast::FastState;
 use azul_nnue::features::FEATURE_DIM;
 use crate::action::ACTION_DIM;
 
-/// trunk 隐藏层宽度（两层同宽）。
+/// Trunk hidden-layer width (both layers share the same width).
 pub const TRUNK_HIDDEN: usize = 256;
-/// value 头输出维度（单标量）。
+/// Value-head output dimension (a single scalar).
 pub const VALUE_OUT: usize = 1;
 
-/// policy+value 双头网络（纯 f32，无量化）。
+/// Policy+value two-headed net (plain f32, no quantisation).
 #[derive(Clone, Debug)]
 pub struct PvNet {
-    /// [in_dim, trunk_hidden, trunk_hidden]，固定 3 段 trunk。
+    /// [in_dim, trunk_hidden, trunk_hidden], a fixed 3-segment trunk.
     pub dims: [usize; 3],
-    /// trunk 权重（2 层），row-major (out, in)。
+    /// Trunk weights (2 layers), row-major (out, in).
     pub trunk_w: Vec<Vec<f32>>,
-    /// trunk 偏置（2 层）。
+    /// Trunk biases (2 layers).
     pub trunk_b: Vec<Vec<f32>>,
-    /// policy 头权重 [policy_out * trunk_hidden]，row-major (out, in)。
+    /// Policy-head weights [policy_out * trunk_hidden], row-major (out, in).
     pub policy_w: Vec<f32>,
-    /// policy 头偏置 [policy_out]。
+    /// Policy-head biases [policy_out].
     pub policy_b: Vec<f32>,
-    /// value 头权重 [trunk_hidden]（单输出，row-major 退化为一维）。
+    /// Value-head weights [trunk_hidden] (a single output, so row-major
+    /// degenerates to one dimension).
     pub value_w: Vec<f32>,
-    /// value 头偏置 [1]。
+    /// Value-head biases [1].
     pub value_b: Vec<f32>,
 }
 
 impl PvNet {
-    /// 默认网络：171 -> 256 -> 256 trunk + policy 180 + value 1。
+    /// Default net: 171 -> 256 -> 256 trunk + policy 180 + value 1.
     pub fn new() -> Self {
         PvNet::with_dims(FEATURE_DIM, TRUNK_HIDDEN, TRUNK_HIDDEN)
     }
 
-    /// 指定 trunk 隐藏层宽度构建（in 固定 FEATURE_DIM=171，两层同宽）。
+    /// Build with a given trunk hidden-layer width (in is fixed at
+    /// FEATURE_DIM=171; both layers share the same width).
     pub fn with_dims(in_dim: usize, h1: usize, h2: usize) -> Self {
         let dims = [in_dim, h1, h2];
         let mut trunk_w = Vec::new();
@@ -78,8 +87,9 @@ impl PvNet {
         }
     }
 
-    /// 确定性随机初始化（Xavier 风格，与 azul_nnue::net::Mlp::init_random 同源）。
-    /// 用 `seed` 驱动 azul_core::rng::Rnd，逐层按 fan_in 缩放。
+    /// Deterministic random initialisation (Xavier-style, same recipe as
+    /// azul_nnue::net::Mlp::init_random). Drives azul_core::rng::Rnd with
+    /// `seed` and scales each layer by its fan_in.
     pub fn init_random(&mut self, seed: u64) {
         use azul_core::rng::Rnd;
         let mut rng = Rnd::new(seed);
@@ -101,8 +111,9 @@ impl PvNet {
         init_layer(&mut rng, self.dims[2], &mut self.value_w, &mut self.value_b);
     }
 
-    /// 前向：输入 171 维观察向量，返回 (policy logits[180], value ∈ (-1,1))。
-    /// value 为 tanh 输出，从"当前待走方"视角。
+    /// Forward pass: takes a 171-dim observation vector and returns
+    /// (policy logits[180], value ∈ (-1,1)). The value is a tanh output from
+    /// the "current side to move" perspective.
     pub fn forward(&self, obs: &[f32; FEATURE_DIM]) -> ([f32; ACTION_DIM], f32) {
         let mut cur: Vec<f32> = obs.to_vec();
         for l in 0..2 {
@@ -138,12 +149,14 @@ impl PvNet {
         (logits, v.tanh())
     }
 
-    /// 观察向量（side-to-move 视角）+ 局面前向的便捷封装。
+    /// Convenience wrapper: observation vector (side-to-move perspective) +
+    /// forward from a position.
     pub fn forward_state(&self, st: &FastState) -> ([f32; ACTION_DIM], f32) {
         self.forward(&azul_nnue::features::extract(st))
     }
 
-    /// 序列化为小端字节流（布局见模块文档）。trunk 隐藏层宽度编码在 dims 里。
+    /// Serialise to a little-endian byte stream (see the module docs for the
+    /// layout). The trunk hidden-layer width is encoded in dims.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(&2u32.to_le_bytes()); // n_dims
@@ -175,7 +188,8 @@ impl PvNet {
         out
     }
 
-    /// 反序列化 `to_bytes` 的输出。任何不一致（维度、长度、越界）返回 None。
+    /// Deserialise the output of `to_bytes`. Returns None on any inconsistency
+    /// (dimensions, lengths, out-of-bounds).
     pub fn from_bytes(buf: &[u8]) -> Option<Self> {
         let mut i = 0usize;
         let read_u32 = |i: &mut usize| -> Option<u32> {
@@ -246,7 +260,8 @@ impl Default for PvNet {
 mod tests {
     use super::*;
 
-    /// 序列化往返恒等：to_bytes -> from_bytes -> to_bytes 逐字节一致。
+    /// Serialisation round-trip identity: to_bytes -> from_bytes -> to_bytes is
+    /// byte-for-byte identical.
     #[test]
     fn net_serialization_roundtrip() {
         let mut net = PvNet::new();
@@ -262,7 +277,8 @@ mod tests {
         assert_eq!(v0, v1);
     }
 
-    /// 随机初始化确定性：同 seed 逐字节一致，异 seed 不同。
+    /// Random initialisation is deterministic: identical seed gives
+    /// byte-identical output, different seeds differ.
     #[test]
     fn net_init_deterministic() {
         let mut a = PvNet::new();
@@ -274,7 +290,7 @@ mod tests {
         assert_ne!(a.to_bytes(), b.to_bytes());
     }
 
-    /// value 输出在 tanh 范围内，logits 有限。
+    /// Value output stays within the tanh range, and logits are finite.
     #[test]
     fn net_output_ranges() {
         let mut net = PvNet::new();

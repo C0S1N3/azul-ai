@@ -1,11 +1,14 @@
-//! azul-az: AlphaZero 轨道基础设施（plan stage 5）。
+//! azul-az: AlphaZero pipeline infrastructure (plan stage 5).
 //!
-//! policy+value 双头网络（Rust 推理）+ PUCT MCTS + 自对弈数据管线。
-//! 训练在 train/train_az.py（PyTorch），推理/自对弈在本 crate。
+//! Policy+value two-headed net (Rust inference) + PUCT MCTS + self-play data
+//! pipeline. Training lives in train/train_az.py (PyTorch); inference and
+//! self-play live in this crate.
 //!
-//! ⚠️ 备份视角规则（worklog bug #4）：`FastState::apply()` 终局不翻转
-//! `turn`、补砖后先手标记持有者先走（同一玩家可连走两手），所有"父→子
-//! 取反"逻辑只在 turn 改变时取反。详见 mcts.rs 文件头。
+//! ⚠️ Backup perspective rule (worklog bug #4): `FastState::apply()` does not
+//! flip `turn` at game end, and after the tile refill the holder of the
+//! first-move marker plays first (the same player may take two moves in a
+//! row), so all "parent -> child negation" logic only negates when the turn
+//! changes. See the mcts.rs file header for details.
 
 pub mod action;
 pub mod mcts;

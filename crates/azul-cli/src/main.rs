@@ -8,8 +8,9 @@ use azul_core::rng::Rnd;
 use azul_az::net::PvNet;
 use std::time::Instant;
 
-/// 载入 policy+value 网。`path` 不存在或为 "random" 时用确定性随机初始化
-/// （seed 驱动），便于管线 smoke 与无训练基线对局。
+/// Load a policy+value net. When `path` does not exist or is "random", fall
+/// back to deterministic random initialisation (seed-driven), for pipeline
+/// smoke tests and untrained baseline duels.
 fn load_pv_net(path: &str, seed: u64) -> PvNet {
     if path == "random" {
         let mut net = PvNet::new();
