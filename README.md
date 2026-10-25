@@ -1,6 +1,8 @@
-# Azul 超人类 AI（azul-ai）
+# Azul AI（azul-ai）
 
-用 Rust 引擎 + AlphaZero 自博弈训练的 Azul（花砖）桌游 AI。从规则引擎、启发式基线、NNUE 评估、Rzepecki 迭代到 AZ 自博弈轨道完整实现，冠军网络 **az_net7** 经内部 Elo 阶梯与跨项目对局验证，已超过开源预训练水平。
+用 Rust 引擎 + AlphaZero 自博弈训练的 Azul（花砖）桌游 AI。从规则引擎、启发式基线、NNUE 评估、Rzepecki 迭代到 AZ 自博弈轨道完整实现，冠军网络 **az_net7** 经内部 Elo 阶梯与跨项目对局验证，强于同规模开源预训练网络。
+
+> **实力声明**：本项目的全部强度数据均来自引擎之间的内部对局，**从未经过人类对弈认证**，真实实力不保证。保守估计，它**并没有超过人类的棋力**——请勿将任何内部 Elo 数字解读为"能赢人类"的证据。
 
 ## 项目结构
 
@@ -17,7 +19,7 @@ train/
   train_nnue.py  NNUE 训练
   diag_nnue.py   NNUE 诊断
 docs/worklog.md            全程工程记录（决策、事故、Elo 数据）
-azul-superhuman-ai-plan.md 总体规划（0~6 阶段）
+azul-ai-plan.md 总体规划（0~6 阶段）
 out/
   az_net7.bin    AZ 冠军策略价值网（256 通道 x3 残差块）
   nnue_v4.bin    NNUE 主力评估权重（hybrid 引擎用）

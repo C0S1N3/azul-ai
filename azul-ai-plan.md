@@ -1,4 +1,4 @@
-# 超人类 Azul AI 复刻方案（最终增强版）
+# Azul AI 复刻方案（最终增强版）
 
 > **方法论**：Rzepecki（弗罗茨瓦夫大学硕士论文，2025，Minimax+NNUE，BGA 双榜第一，对 top-5 玩家 2.5:0.5）的算法骨架 × Dan Luu（danluu.com/ai-coding + danluu.com/perf-opt，世界冠军认证最强 bot）的工程杠杆与 eval 纪律。
 > **本版相对旧方案的改进**：① 落地为具体 Rust workspace 工程结构与模块接口（已定：Rust 实现）；② 按已定"混合双引擎"决策把 AlphaZero 轨道升级为正式阶段（旧方案为可选项）；③ 明确训练技术栈（PyTorch 训练 → 量化导出 → Rust 推理，备选 bullet）与模型导出链路；④ 预留 garden 小程序决策辅助对接契约（180 动作编码 + to_dict JSON）；⑤ 补充开源参考实现的可借鉴点（bkase/azul、cestpasphoto/alpha-zero-general、jw1912/bullet）；⑥ 评估体系显式化为独立 crate 与 Elo 锚点池。
@@ -75,7 +75,7 @@ trait Game { fn legal(&self)->Vec<Move>; fn apply(&self,m:Move,seed:u64)->Self; 
 
 本项目周期长、跨多轮会话，为防记忆缺失造成路线跑偏，执行期间强制遵守：
 
-1. **唯一事实源**：本计划文档 + `docs/worklog.md`（工作日志）。任何会话开始/恢复时，**先读这两个文件**再动手。
+1. **唯一事实源**：本计划文档 + `docs/worklog.md`（工作日志）。动手前**先读这两个文件**。
 2. **worklog.md 结构**：顶部维护「当前阶段指针」（当前在哪个里程碑、下一步）；每次有意义的进展后追加条目（时间、做了什么、验证结果、决策与理由、下一步）；决策变更必须写明"改了什么、为什么"。
 3. **阶段自检**：对照里程碑表与验收标准，偏离时立即纠偏或显式更新计划（不允许"默默绕路"）。
 4. **决策以计划为准**：Rzepecki 实测值优先于理论推断（见 2.4）；证伪的东西写进 worklog「已证伪清单」，不再重试。
@@ -230,10 +230,10 @@ Dan 的原话级结论：他的 AI 算法层面只"略胜一筹"（他自认比 
 
 **验收**：AZ 轨道 best 在锚点池全面 ≥ minimax+NNUE 同限时档；否则保留 minimax 为主力、AZ 退为数据生成器/陪练。**预算**：并行推进或后置，不影响主线达标。
 
-## 阶段 6：超人类验证与标定（与 3–5 并行）
+## 阶段 6：强度验证与标定（与 3–5 并行）
 
 1. **锚点池 Elo 追踪**：每轮 checkpoint 对固定锚点池（random/greedy/h0/h11/历代最佳；有条件接入 PJF98=cestpasphoto Azul bot 作公开参照）打 Elo 曲线〔D-ai〕；
-2. **北极星对照**：你自己去 danluu.com/game/tile 下 30–50 盘（default 与高线程各半）——"人类世界冠军都下不过它"，这就是超人类的具体样貌；你下不过自己的 bot、且感觉和下 Dan 的 bot 类似吃力，即为达标〔D-ai〕；
+2. **北极星对照**：你自己去 danluu.com/game/tile 下 30–50 盘（default 与高线程各半）——"人类世界冠军都下不过它"，这就是目标强度的具体样貌；你下不过自己的 bot、且感觉和下 Dan 的 bot 类似吃力，即为达标〔D-ai〕；
 3. **人机实测**：找不同水平的朋友/线上真人分级验证。论文参照系〔R-8.3〕：h19 ≈ BGA 全时 Elo 890（15 局输 1）、h43 ≈ 970（25 局输 1）、h232 = 全时榜第一 Elo 1173 / 赛季榜第一 2340、对 top-5 玩家 2.5:0.5；
 4. **对局风格自检**〔R-8.4〕：3.6 万局自战统计——先手胜率 58.32%（≈1.5 分优势）、开局主攻中列（3/4 行）、第 4 轮抢先手标记拿末轮主动权、赢家首行落地惩罚更高（早期牺牲换终盘）。你的 bot 出现同款行为模式是训练充分的信号；
 5. ⚠️ **伦理红线**：两人都演示过 BGA 实战，但用 bot 打 BGA 会被判定作弊、成绩作废（Rzepecki 的赛季成绩即被 void，还被社区做视频扒出来）。验证请走朋友、本地社区或自建前端。
@@ -252,7 +252,7 @@ Dan 的原话级结论：他的 AI 算法层面只"略胜一筹"（他自认比 
 | 5 | AZ 融合轨道 | 并行/可后置 | GPU 加速自对弈 | 锚点池 ≥ minimax 主力 |
 | 6 | 验证与标定 | 与 3–5 并行 | — | 北极星对照 + Elo 曲线 |
 
-硬件说明：训练侧 PyTorch 复用 garden 现成 torch 2.9+cu128 GPU 环境；Rzepecki 全程 CPU 训练亦可行；部署推理 int8+AVX2。参照系：Dan 无 ML 背景、笔记本 CPU，2–3 小时超过当时最强公开 bot、5 小时超人类、约 20 小时达世界最强；Rzepecki 全程约一个学期（含大量论文写作）。按本方案（站在两人肩膀上 + LLM 代理写码 + 你已跑通 alpha-zero-general 的经验），**2–3 个月业余时间达超人类是现实预期**。
+硬件说明：训练侧 PyTorch 复用 garden 现成 torch 2.9+cu128 GPU 环境；Rzepecki 全程 CPU 训练亦可行；部署推理 int8+AVX2。参照系：Dan 无 ML 背景、笔记本 CPU，2–3 小时超过当时最强公开 bot、约 20 小时达世界最强；Rzepecki 全程约一个学期（含大量论文写作）。按本方案（站在两人肩膀上 + LLM 代理写码 + 你已跑通 alpha-zero-general 的经验），**2–3 个月业余时间达到相当强度是现实预期**。
 
 ## 风险与回退
 
@@ -282,7 +282,7 @@ Dan 的原话级结论：他的 AI 算法层面只"略胜一筹"（他自认比 
 
 ## 参考资料
 
-- Rzepecki 2025, *Implementing superhuman AI for Azul board game with a variation of NNUE*（弗罗茨瓦夫大学硕士论文，导师 Jakub Kowalski）：https://jakubkowalski.tech/Supervising/Rzepecki2025ImplementingSuperhuman.pdf
+- Rzepecki 2025, *Azul AI 与 NNUE 变体*（弗罗茨瓦夫大学硕士论文，导师 Jakub Kowalski）：https://jakubkowalski.tech/Supervising/
 - Dan Luu, *Agentic test processes, LLM benchmarks…*：https://danluu.com/ai-coding
 - Dan Luu, *There's no reason for software to be slow anymore*：https://danluu.com/perf-opt/
 - Dan Luu 公开 bot（北极星）：https://danluu.com/game/tile/
