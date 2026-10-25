@@ -4,7 +4,7 @@ An Azul engine written in Rust, plus the training pipeline that produced its two
 
 > **On strength.** Every number below comes from engine-vs-engine matches inside this project, plus one 80-game cross-project match against a publicly available pretrained net. None of it has been validated against human players, and none of it should be read as a claim about how this AI would fare against people.
 
-🎮 **Play in the browser** — [Qoder Sites](https://azul-ai-f9d6h843g0z.qoder.zone/) · [GitHub Pages](https://c0sin3.github.io/azul-ai/). The champion net `az_net7` compiled to WebAssembly, running entirely inside the page.
+🎮 **Play in the browser** — [Qoder Sites](https://azul-ai-f9d6h843g0z.qoder.zone/) · [GitHub Pages](https://c0sin3.github.io/azul-ai/) · [WorkBuddy](https://azul-ai-demo.app.workbuddy.host/?sharecode=7LGJRHMASS). The champion net `az_net7` compiled to WebAssembly, running entirely inside the page.
 
 [简体中文 README](README.zh-CN.md)
 
